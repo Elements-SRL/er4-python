@@ -1,4 +1,4 @@
-# Python Calibrator
+# Python wrapper
 
 ## Installation
 Currently the Python wrapper of the e4 only works on Windows systems.
