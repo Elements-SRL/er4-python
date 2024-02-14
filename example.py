@@ -2,6 +2,7 @@ import er4CommLib_python as er4
 import time
 import numpy as np
 from tail_recursion import tail_recursive
+import sys
 
 # This is an example usage of a device that uses er4.
 # A lot of functions, return a tuple Err, .. where Err is an ErrorCode.
@@ -9,20 +10,19 @@ from tail_recursion import tail_recursive
 # Some function could return different error codes due to the different nature of the devices so be sure to check this values.
 
 class Device:
-    def __init__(self, ch_indexes, number_of_channels):
-        self.number_of_channels = number_of_channels
-        self.ch_indexes = ch_indexes
-        self.number_of_channels = len(ch_indexes)
-
-    # Value of current in nA
-    @staticmethod
-    def acquire(ch_idx):
+    def __init__(self, v_channels, i_channels):
+        self.number_of_voltage_channels = v_channels
+        self.number_of_current_channels = i_channels
+    
+    # Value of current in same unit of measurement as the current range
+    # this fucntion makes an average of the number_of_packets
+    def acquire(self, ch_idx, number_of_packets):
         time.sleep(0.2)
         # clean all data from the device
         er4.purgeData()
         data = []
         # 1250 is the number of packets that I want to have, roughly one second of data 
-        while len(data) < 1250:
+        while len(data) < number_of_packets:
             # get the status of the data queue
             err, qs = er4.getQueueStatus()
             if err != er4.ErrorCode.Success:
@@ -67,7 +67,7 @@ class Device:
 
         time.sleep(0.2)
         er4.purgeData()
-        return _parallel_acquire(np.empty((len(self.ch_indexes), 0)))
+        return _parallel_acquire(np.empty((self.number_of_current_channels, 0)))
 
     def set_dacs_in(self, voltage):
         # create a measurement:
@@ -79,29 +79,31 @@ class Device:
         er4.setVoltageOffset(len(self.ch_indexes), v_dac_in_measurement)
 
     # connect to the first listed device
-    @staticmethod
-    def connect():
+    @classmethod
+    def connect(cls):
         # detect the devices connected via usb
         #  returns a list of str and an ErrorCode
+        # The error code could be checked
         err, devices = er4.detectDevices()
         if len(devices) > 0:
             # connect to the first device
             er4.connect(devices[0])
-            print("successfully connected to " + devices[0])
-            return True
+            print("Successfully connected to " + devices[0])
+            err, v_channels, i_channels = er4.getChannelsNumber()
+            print("The device has " + str(v_channels) + " voltage channels and " + str(i_channels) + " current channels")            
+            return cls(v_channels, i_channels)
         else:
             # if no device is been found exit
             print("no device connected, exiting in 5 seconds")
             time.sleep(5)
-            return False
+            sys.exit()
 
     # set the initial configuration of the device (in this example we are using an e16e)
-    @staticmethod
-    def configure():
+    def configure(self):
         # set the current range
         #  first argument is the index of the range (0: 200pA, 1: 2nA, 2: 20nA, 3: 200nA)
         #  second argument is the channel to apply the current ragne to, 16 means all the channels
-        er4.setCurrentRange(0, 16)
+        er4.setCurrentRange(0, self.v_channels + self.i_channels)
         #  set the voltage range
         #   first argument is the index of the range (0: 500mV )
         er4.setVoltageRange(0)
@@ -117,6 +119,14 @@ class Device:
         #   first argument is the index of the sampling rate(0: 1.25kHz, 1: 5kHz, 2: 10kHz, 3: 20kHz, 4: 50kHz, 5: 100kHz, 6: 200kHz,)
         er4.setSamplingRate(0)
     
+    def get_sampling_rates(self):
+        err, sampling_rates, default_sr = er4.getSamplingRates()
+        return sampling_rates
+    
+    def get_current_ranges(self):
+        err, current_ranges, default_sr = er4.getCurrentRanges()
+        return current_ranges
+    
     # set voltage of the external dac
     @staticmethod
     def set_v_ref(voltage):
@@ -130,3 +140,21 @@ class Device:
     def disconnect():
         # disconnect the device
         er4.disconnect()
+
+dev = Device.connect()
+print("The sampling rates are:")
+sampling_rates = dev.get_sampling_rates()
+for sr in sampling_rates:
+    print(sr.value, sr.prefix, sr.unit)
+print("The current ranges are:")
+current_ranges = dev.get_current_ranges()
+for cr in current_ranges:
+    print(cr.max, cr.prefix, cr.unit)
+
+# acquire 1250 samples of data
+print("Acquiring 1 second worth of data (if the device is set to 1.25kHz)")
+i = dev.acquire(0, 1250)
+print(i)
+print("Acquiring 1 second worth of data(if the device is set to 1.25kHz) in parallel from all channels (if the device has more than one channel could be helpful)")
+i = dev.parallel_acquire(1250)
+print(i)
