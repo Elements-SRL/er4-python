@@ -1,160 +1,157 @@
-import er4CommLib_python as er4
 import time
-import numpy as np
-from tail_recursion import tail_recursive
+import er4_python_wrapper as c4
 import sys
+import numpy as np
+import matplotlib.pyplot as plt
+from tempfile import TemporaryFile
 
-# This is an example usage of a device that uses er4.
-# A lot of functions, return a tuple Err, .. where Err is an ErrorCode.
-# If the ErrorCode is "Success" the function has worked as expected.
-# Some function could return different error codes due to the different nature of the devices so be sure to check this values.
 
-class Device:
-    def __init__(self, v_channels, i_channels):
-        self.number_of_voltage_channels = v_channels
-        self.number_of_current_channels = i_channels
-    
-    # Value of current in same unit of measurement as the current range
-    # this fucntion makes an average of the number_of_packets
-    def acquire(self, ch_idx, number_of_packets):
-        time.sleep(0.2)
-        # clean all data from the device
-        er4.purgeData()
-        data = []
-        # 1250 is the number of packets that I want to have, roughly one second of data 
-        while len(data) < number_of_packets:
-            # get the status of the data queue
-            err, qs = er4.getQueueStatus()
-            if err != er4.ErrorCode.Success:
-                # wait for data
-                time.sleep(0.01)
-                continue
-            # read data from the queue
-            err, packets_read, buffer = er4.readData(qs.availableDataPackets)
-            # convert values from int to currents (start add 1 because the first element is the voltage, other values are currents)
-            #  returns a tuple, ErrorCode, float
-            tuples = [er4.convertCurrentValue(int(d[ch_idx + 1]), ch_idx) for d in buffer]
-            data_in_channel = [t[1] for t in tuples if t[0] == er4.ErrorCode.Success]
-            data = data + data_in_channel
-        # return the average of the last n samples
-        return sum(data) / len(data)
-    
-    # parallel version of the previous function
-    def parallel_acquire(self, n_of_readings) -> np.ndarray:
-        @tail_recursive
-        # Value of current in nA
-        def _parallel_acquire(data: np.ndarray) -> np.ndarray:
-            # wait for a bit to let data accumulate
-            time.sleep(0.1)
-            if data.shape[1] > n_of_readings:
-                return np.mean(data, axis=1)/1e9
-            err, qs = er4.getQueueStatus()
-            if err != er4.ErrorCode.Success:
-                return _parallel_acquire(data)
-            err, packets_read, buffer = er4.readData(qs.availableDataPackets)
-            # print("avail data ", qs.availableDataPackets, " packets read ", packets_read)
-            data_without_voltage = np.array([d[1:] for d in buffer])
-            ch_measurement_in_rows = np.transpose(data_without_voltage)
-            measurements = np.array([
-                [er4.convertCurrentValue(int(m), idx) for m in measurements_for_one_ch]
-                for measurements_for_one_ch, idx in zip(ch_measurement_in_rows, range(ch_measurement_in_rows.shape[0]))
-            ])
-            data_in_float = [[t[1] for t in list_of_measurements if t[0] == er4.ErrorCode.Success] for
-                             list_of_measurements
-                             in
-                             measurements]
-            return _parallel_acquire(np.hstack((data, data_in_float)))
+def list_protocols(protocols: list, protocol_name: str):
+    if len(protocols) == 0:
+        print("No " + protocol_name.lower() + " available for this protocol")
+    else:
+        for v in protocols:
+            print(protocol_name + str(v))
 
-        time.sleep(0.2)
-        er4.purgeData()
-        return _parallel_acquire(np.empty((self.number_of_current_channels, 0)))
 
-    def set_dacs_in(self, voltage):
-        # create a measurement:
-        #  first argument the value to set
-        #  second argument is the prefix (u, m, None, k, etc...)
-        #  third argument is the unit of Measurement as a str
-        v_dac_in_measurement = er4.Measurement(voltage, er4.UnitPfxNone, "V")
-        # this will set the internal dacs to the initial measurement, will set all dacs if ch_index == num_channels
-        er4.setVoltageOffset(len(self.ch_indexes), v_dac_in_measurement)
+def print_protocol_info(names: list[str], ranges: list[c4.RangedMeasurement]):
+    for n, r in zip(names, ranges):
+        print("Voltage name: " + n)
+        print("Range:" + r.niceLabel())
+        print("min:" + str(r.min))
+        print("max:" + str(r.max))
 
-    # connect to the first listed device
-    @classmethod
-    def connect(cls):
-        # detect the devices connected via usb
-        #  returns a list of str and an ErrorCode
-        # The error code could be checked
-        err, devices = er4.detectDevices()
-        if len(devices) > 0:
-            # connect to the first device
-            er4.connect(devices[0])
-            print("Successfully connected to " + devices[0])
-            err, v_channels, i_channels = er4.getChannelsNumber()
-            print("The device has " + str(v_channels) + " voltage channels and " + str(i_channels) + " current channels")            
-            return cls(v_channels, i_channels)
-        else:
-            # if no device is been found exit
-            print("no device connected, exiting in 5 seconds")
-            time.sleep(5)
-            sys.exit()
 
-    # set the initial configuration of the device (in this example we are using an e16e)
-    def configure(self):
-        # set the current range
-        #  first argument is the index of the range (0: 200pA, 1: 2nA, 2: 20nA, 3: 200nA)
-        #  second argument is the channel to apply the current ragne to, 16 means all the channels
-        er4.setCurrentRange(0, self.v_channels + self.i_channels)
-        #  set the voltage range
-        #   first argument is the index of the range (0: 500mV )
-        er4.setVoltageRange(0)
-        #  set the voltage range
-        #   first argument is the index of the range ()
-        #   your device will return an error because it has np voltage reference range
-        er4.setVoltageReferenceRange(0)
-        # set the voltage low pass filter
-        #   first argument is the index of the low pass filter range()
-        #   your device will return an error because it has np voltage reference range
-        er4.setVoltageReferenceLpf(1)
-        # set the sampling rate
-        #   first argument is the index of the sampling rate(0: 1.25kHz, 1: 5kHz, 2: 10kHz, 3: 20kHz, 4: 50kHz, 5: 100kHz, 6: 200kHz,)
-        er4.setSamplingRate(0)
-    
-    def get_sampling_rates(self):
-        err, sampling_rates, default_sr = er4.getSamplingRates()
-        return sampling_rates
-    
-    def get_current_ranges(self):
-        err, current_ranges, default_sr = er4.getCurrentRanges()
-        return current_ranges
-    
-    # set voltage of the external dac
-    @staticmethod
-    def set_v_ref(voltage):
-        v_dac_ext_measurement = er4.Measurement(voltage, er4.UnitPfxNone, "V")
-        # apply the voltage to the external dac
-        if er4.applyDacExt(v_dac_ext_measurement) != er4.ErrorCode.Success:
-            print("error setting vref")
+err, devices = c4.detectDevices()
+if err != c4.Success:
+    print("connection failed")
+    sys.exit()
 
-    # disconnect the device
-    @staticmethod
-    def disconnect():
-        # disconnect the device
-        er4.disconnect()
+err = c4.connect(devices)
+if err != c4.Success:
+    print("connection failed")
+    sys.exit()
 
-dev = Device.connect()
-print("The sampling rates are:")
-sampling_rates = dev.get_sampling_rates()
-for sr in sampling_rates:
-    print(sr.value, sr.prefix, sr.unit)
-print("The current ranges are:")
-current_ranges = dev.get_current_ranges()
+e, v_channels, i_channels, gp_channels = c4.getChannelsNumber()
+print(e, v_channels, i_channels, gp_channels)
+
+e, current_ranges, default_options = c4.getCurrentRanges()
 for cr in current_ranges:
-    print(cr.max, cr.prefix, cr.unit)
+    print(cr.niceLabel())
 
-# acquire 1250 samples of data
-print("Acquiring 1 second worth of data (if the device is set to 1.25kHz)")
-i = dev.acquire(0, 1250)
-print(i)
-print("Acquiring 1 second worth of data(if the device is set to 1.25kHz) in parallel from all channels (if the device has more than one channel could be helpful)")
-i = dev.parallel_acquire(1250)
-print(i)
+e, sampling_rates, default_options = c4.getSamplingRates()
+for sr in sampling_rates:
+    print(sr.niceLabel())
+
+c4.setCurrentRange(1, i_channels)
+c4.setSamplingRate(0)
+print("Start digital offset compensation")
+c4.digitalOffsetCompensation(i_channels, True)
+time.sleep(5)
+c4.digitalOffsetCompensation(i_channels, False)
+print("Stop digital offset compensation")
+e, names, images, voltages, times, slopes,frequencies, adimensionals = c4.getProtocolList()
+for n in names:
+    print(n)
+
+protocol_id = 3
+conduct_prot_voltages = voltages[protocol_id]
+conduct_prot_times = times[protocol_id]
+conduct_prot_slopes = slopes[protocol_id]
+conduct_prot_frequencies = frequencies[protocol_id]
+conduct_prot_adimensionals = adimensionals[protocol_id]
+
+list_protocols(conduct_prot_voltages, "Voltages")
+list_protocols(conduct_prot_times, "Times")
+list_protocols(conduct_prot_slopes, "Slopes")
+list_protocols(conduct_prot_frequencies, "Frequencies")
+list_protocols(conduct_prot_adimensionals, "Adimensionals")
+
+print("Available conductance protocol features to select with the previous indexes")
+e, v_names, v_ranges, default_values = c4.getProtocolVoltage()
+print_protocol_info(v_names, v_ranges)
+
+e, t_names, t_ranges, default_values = c4.getProtocolTime()
+print_protocol_info(t_names, t_ranges)
+
+e, a_names, a_ranges, default_values = c4.getProtocolAdimensional()
+print_protocol_info(a_names, a_ranges)
+
+c4.selectVoltageProtocol(protocol_id)
+
+v_hold = c4.Measurement(2.0, c4.UnitPfxMilli, "V")
+c4.setProtocolVoltage(0, v_hold)
+
+v_pulse = c4.Measurement(100.0, c4.UnitPfxMilli, "V")
+c4.setProtocolVoltage(1, v_pulse)
+
+v_step = c4.Measurement(20.0, c4.UnitPfxMilli, "V")
+c4.setProtocolVoltage(2, v_step)
+
+t_hold = c4.Measurement(5.0, c4.UnitPfxMilli, "s")
+c4.setProtocolTime(0, t_hold)
+
+t_pulse = c4.Measurement(40.0, c4.UnitPfxMilli, "s")
+c4.setProtocolTime(1, t_pulse)
+
+adim_n = c4.Measurement(10.0, c4.UnitPfxNone, "")
+c4.setProtocolAdimensional(0, adim_n)
+
+adim_n_r = c4.Measurement(0.0, c4.UnitPfxNone, "")
+c4.setProtocolAdimensional(1, adim_n_r)
+
+print("Start voltage protocol")
+if c4.applyVoltageProtocol() != c4.Success:
+    print("Cannot apply protocol")
+    c4.disconnect()
+    sys.exit()
+
+data_to_read = 12500
+data_read = 0
+
+i_data = np.array([])
+v_data = np.array([])
+
+_, i_range = c4.getCurrentRange(0)
+_, v_range = c4.getVoltageRange()
+
+v_m = v_range.step
+print(v_range.step)
+i_m = i_range.step
+print(i_range.step)
+
+c4.purgeData()
+
+total_channels = v_channels + i_channels + gp_channels
+while len(i_data) < data_to_read:
+    e, q = c4.getQueueStatus()
+    available_data = q.availableDataPackets
+    if available_data > 0:
+        read_error, data = c4.readData(available_data)
+        np_buffer = np.array(data, copy=False)
+        data_matrix = np_buffer.reshape((-1, total_channels)).transpose()
+        # getting the first voltage channel
+        v_data = np.append(v_data, data_matrix[0].astype(np.int16) * v_m)
+        # getting the first current channel
+        i_data = np.append(i_data, data_matrix[v_channels].astype(np.int16) * i_m)
+        if gp_channels > 0:
+            i_data = np.append(i_data, (data_matrix[v_channels + i_channels] * i_m) + min)
+
+# disconnect from the device
+c4.disconnect()
+
+ifile = TemporaryFile()
+vfile = TemporaryFile()
+np.save(ifile, i_data)
+np.save(vfile, v_data)
+
+# Only needed to simulate closing & reopening file
+_ = ifile.seek(0)
+_ = vfile.seek(0)
+# data read from file
+read_i_data = np.load(ifile)
+read_v_data = np.load(vfile)
+plt.plot(read_i_data)
+plt.show()
+plt.plot(read_v_data)
+plt.show()
