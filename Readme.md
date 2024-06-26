@@ -97,6 +97,10 @@ Currently the Python wrapper of the e4 only works on Windows systems.
 
 #### Windows
 ##### Requirements
+For the example to work, you need to install the USB driver provided by FTDI. This can be done by either installing EDR4, or by installing the driver directly from https://ftdichip.com/drivers/d2xx-drivers/, version 2.12.36.4 x64 for Windows.
+
+In either case, the procedure correctly ends only once the current amplifier is plugged to to the PC via a USB cable.
+
 - Python **3.11.7**
 - custom dlls v0.10.0:
     - You can download them from [here](https://elements-ic.com/wp-content/uploads/2024/02/python_3_11_7_dlls.zip)
