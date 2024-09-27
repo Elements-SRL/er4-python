@@ -551,13 +551,13 @@ PYBIND11_MODULE(er4_python_wrapper, m) {
             return std::make_tuple(ret, offsets);
         });
 
-    py::class_<I16Buffer>(m, "I16Buffer", py::buffer_protocol())
+    py::class_<I16Buffer>(m, "I16Buffer", py::buffer_protocol(), py::module_local())
             .def_buffer(&I16Buffer::get_buffer);
 
-    py::class_<U16Buffer>(m, "U16Buffer", py::buffer_protocol())
+    py::class_<U16Buffer>(m, "U16Buffer", py::buffer_protocol(), py::module_local())
             .def_buffer(&U16Buffer::get_buffer);
 
-    py::class_<er4CommLib::Measurement_t>(m, "Measurement")
+    py::class_<er4CommLib::Measurement_t>(m, "Measurement", py::module_local())
             .def(py::init<double, er4CommLib::UnitPfx_t, std::string>())
             .def_readonly("value", &er4CommLib::Measurement_t::value)
             .def_readonly("prefix", &er4CommLib::Measurement_t::prefix)
@@ -576,7 +576,7 @@ PYBIND11_MODULE(er4_python_wrapper, m) {
     })
             .def("nice", &er4CommLib::Measurement_t::nice);
 
-    py::class_<er4CommLib::RangedMeasurement_t>(m, "RangedMeasurement")
+    py::class_<er4CommLib::RangedMeasurement_t>(m, "RangedMeasurement", py::module_local())
             .def(py::init<double, double, double, er4CommLib::UnitPfx_t, std::string>())
             .def_readonly("min", &er4CommLib::RangedMeasurement_t::min)
             .def_readonly("max", &er4CommLib::RangedMeasurement_t::max)
@@ -675,7 +675,7 @@ PYBIND11_MODULE(er4_python_wrapper, m) {
             .value("WasherIllFormedMessage",    er4CommLib::WasherIllFormedMessage)
             .export_values();
 
-    py::class_<er4CommLib::QueueStatus_t>(m, "QueueStatus")
+    py::class_<er4CommLib::QueueStatus_t>(m, "QueueStatus", py::module_local())
             .def(py::init<unsigned int, bool,bool,bool,bool,bool,bool>())
             .def_readonly("availableDataPackets",      &er4CommLib::QueueStatus_t::availableDataPackets)
             .def_readonly("bufferOverflowFlag",        &er4CommLib::QueueStatus_t::bufferOverflowFlag)
