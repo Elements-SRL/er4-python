@@ -32,6 +32,8 @@ if err != c4.Success:
     print("connection failed")
     sys.exit()
 
+c4.setRawDataFilter(c4.Measurement(1.0, c4.UnitPfxNone, "Hz"), True, False)
+
 e, v_channels, i_channels, gp_channels = c4.getChannelsNumber()
 print(e, v_channels, i_channels, gp_channels)
 
