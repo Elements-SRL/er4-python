@@ -232,6 +232,21 @@ ErrorCodes_t checkVoltageOffset(
         ER4CL_ARGIN Measurement_t voltage,
         ER4CL_ARGIN std::string &message);
 
+/*! \brief Set a channel voltage offset.
+ *
+ * \param channelIdx [in] Index of the channel.
+ * \param initialVoltage [in] Value of the ramp intial voltage.
+ * \param finalVoltage [in] Value of the ramp final voltage.
+ * \param duration [in] Value of the ramp duration.
+ * \return Error code.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t setVoltageRampOffset(
+    ER4CL_ARGIN unsigned int channelIdx,
+    ER4CL_ARGIN Measurement_t initialVoltage,
+    ER4CL_ARGIN Measurement_t finalVoltage,
+    ER4CL_ARGIN Measurement_t duration);
+
 /*! \brief Apply the insertion pulse if available.
  *
  * \param voltage [in] Voltage of the insertion pulse to be applied.
@@ -291,14 +306,34 @@ ErrorCodes_t setRawDataFilter(
         ER4CL_ARGIN bool lowPassFlag,
         ER4CL_ARGIN bool activeFlag);
 
-/*! \brief Apply voltage on the external DAC.
+/*! \brief Apply voltage on the external DAC referred to Vcm.
  *
- * \param value [in] Voltage applied on the external DAC.
+ * \param voltage [in] Voltage applied on the external DAC with respect to Vcm.
  * \return Error code.
  */
 ER4COMMLIBSHARED_EXPORT
 ErrorCodes_t applyDacExt(
         ER4CL_ARGIN Measurement_t voltage);
+
+/*! \brief Apply voltage on the external DAC using the absolute value of the DAC (only for internal use).
+ *
+ * \param voltage [in] Voltage applied on the external DAC with respect to GND.
+ * \return Error code.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t setDacExtDeviceVoltage(
+        ER4CL_ARGIN Measurement_t voltage);
+
+/*! \brief Apply constant Vcm on a channel.
+ *
+ * \param chIdx [in] Channel to apply Vcm on.
+ * \param flag [in] true: Vcm set on channel; false: DAC voltage applied on channel.
+ * \return Error code.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t setVcmOnChannel(
+    ER4CL_ARGIN unsigned int chIdx,
+    ER4CL_ARGIN bool flag);
 
 /*! \brief Set a custom flag control.
  *
@@ -310,6 +345,17 @@ ER4COMMLIBSHARED_EXPORT
 ErrorCodes_t setCustomFlag(
         ER4CL_ARGIN uint16_t idx,
         ER4CL_ARGIN bool flag);
+
+/*! \brief Set a custom multivalued option.
+ *
+ * \param idx [in] Index of the option to be set.
+ * \param value [in] Value for the option.
+ * \return Error code.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t setCustomOption(
+        ER4CL_ARGIN uint16_t idx,
+        ER4CL_ARGIN uint16_t value);
 
 /*! \brief Set a custom double control.
  *
@@ -617,6 +663,14 @@ ER4COMMLIBSHARED_EXPORT
 ErrorCodes_t resetDevice(
         ER4CL_ARGVOID);
 
+/*! \brief In devices that can take an external trigger this will keep the device in a reset state until the digital trigger is received.
+ *
+ * \return Error code.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t resetDeviceAndWaitTrigger(
+        ER4CL_ARGVOID);
+
 /*! \brief Reset the variables of the algorithm for data synchronization between distinct devices.
  *
  * \return Error code.
@@ -679,6 +733,16 @@ ErrorCodes_t setCFastCompensationOptions(
 ER4COMMLIBSHARED_EXPORT
 ErrorCodes_t setCFastCapacitance(
         ER4CL_ARGIN Measurement_t value);
+
+/*! \brief ENable or disables the TTL pulse train.
+ *
+ * \param flag [in] true: enable the TTL pulse train; false: disable it.
+ *
+ * \return Error code.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t enableTtlPulseTrain(
+        ER4CL_ARGIN bool flag);
 
 /*! \brief Configures the TTL pulse train parameters.
  *
@@ -856,10 +920,12 @@ ErrorCodes_t convertGpValue(
  * This command is useful to get rid of data acquired during the device configuration (e.g. during setting of sampling rate or digital offset compensation).
  * Calling this method if no device is connected will return an error code.
  *
+ * \param purgeAlsoChannel [in] false to purge only the data accumulated by the commlib, true to purge also the USB channel.
  * \return #EdlErrorCode_t Error code.
  */
 ER4COMMLIBSHARED_EXPORT
-ErrorCodes_t purgeData(ER4CL_ARGVOID);
+ErrorCodes_t purgeData(
+    ER4CL_ARGIN bool purgeAlsoChannel = false);
 
 /*! \brief Get the number of channels for the device.
  *
@@ -961,6 +1027,14 @@ ER4COMMLIBSHARED_EXPORT
 ErrorCodes_t getVoltageReferenceRanges(
         ER4CL_ARGOUT std::vector <RangedMeasurement_t> &ranges,
         ER4CL_ARGOUT uint16_t &defaultOption);
+
+/*! \brief Success if the device can be used as a DAC EXT device (only for internal use).
+ *
+ * \return Error code.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t isDacExtDevice(
+        ER4CL_ARGVOID);
 
 /*! \brief Get the voltage range currently applied for the reference.
  *
@@ -1116,7 +1190,8 @@ ErrorCodes_t getSwitchedOnChannels(
  * \return Success if the device has offers the possibility to reset the digital offset compensation.
  */
 ER4COMMLIBSHARED_EXPORT
-ErrorCodes_t hasDigitalOffsetCompensationReset();
+ErrorCodes_t hasDigitalOffsetCompensationReset(
+    ER4CL_ARGVOID);
 
 /*! \brief Get the digital output availability.
  *
@@ -1124,6 +1199,14 @@ ErrorCodes_t hasDigitalOffsetCompensationReset();
  */
 ER4COMMLIBSHARED_EXPORT
 ErrorCodes_t hasDigitalOutput(
+        ER4CL_ARGVOID);
+
+/*! \brief Get the digital input availability for synchronization.
+ *
+ * \return Return an error code if the feature is not available.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t hasDigitalInputSynchronization(
         ER4CL_ARGVOID);
 
 /*! \brief Get the front end reset denoiser feature availability.
@@ -1246,6 +1329,17 @@ ErrorCodes_t getProtocolAdimensional(
 ER4COMMLIBSHARED_EXPORT
 ErrorCodes_t getVoltageOffsetControls(
         ER4CL_ARGOUT RangedMeasurement_t &voltageRange);
+
+/*! \brief Availability of single channels voltage ramp controls.
+ *
+ * \param voltageRanges [out] Ranges of applicable ramp voltages.
+ * \param durationRange [out] Range of applicable ramp duration.
+ * \return Success if the voltage offsets of single channels can be controlled.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t getVoltageRampOffsetControls(
+        ER4CL_ARGOUT std::vector <RangedMeasurement_t> &voltageRanges,
+        ER4CL_ARGOUT RangedMeasurement_t &durationRange);
 
 /*! \brief Get insertion pulse controls definition.
  *
@@ -1395,6 +1489,14 @@ ErrorCodes_t getFastReferencePulseTrainProtocolWave2Range(
  *  Calibration methods  *
 \*************************/
 
+/*! \brief Set device in calibration mode, communication stops while eeprom is being read/written.
+ *
+ * \param calibMode [in] True if calibrating, false otherwise.
+ * \return Error code.
+ */
+ErrorCodes_t setCalibrationMode(
+    ER4CL_ARGIN bool calibMode);
+
 /*! \brief Get calibration eeprom size in bytes.
  *
  * \param size [out] Size of the calibration eeprom in bytes.
@@ -1440,6 +1542,19 @@ ER4COMMLIBSHARED_EXPORT
 ErrorCodes_t getCustomFlags(
         ER4CL_ARGOUT std::vector <std::string> &customFlags,
         ER4CL_ARGOUT std::vector <bool> &customFlagsDefault);
+
+/*! \brief Get the specifications of the custom controls of type enumerator, i.e. options from a list.
+ *
+ * \param customOptions [out] Names of the controls.
+ * \param customOptionsDescriptions [out] Names of the options for each control.
+ * \param customOptionsDefault [out] Deafault options.
+ * \return Success if the device implements any custom enumerator control.
+ */
+ER4COMMLIBSHARED_EXPORT
+ErrorCodes_t getCustomOptions(
+        ER4CL_ARGOUT std::vector <std::string> &customOptions,
+        ER4CL_ARGOUT std::vector <std::vector <std::string>> &customOptionsDescriptions,
+        ER4CL_ARGOUT std::vector <uint16_t> &customOptionsDefault);
 
 /*! \brief Get the available custom controls of type double (floating point values).
  *
@@ -1552,6 +1667,15 @@ ErrorCodes_t hasTtlPulseTrain(
 ER4COMMLIBSHARED_EXPORT
 ErrorCodes_t getVoltageOffsetCompensations(
         ER4CL_ARGOUT std::vector <Measurement_t> &offsets);
+
+/*! \brief Get the measured temperature.
+ *
+ * \param temperature [out] Temperature measured on the device.
+ * \return Error code.
+ */
+ER4COMMLIBSHARED_EXPORT
+    ErrorCodes_t getTemperatureReading(
+        ER4CL_ARGOUT std::vector <Measurement_t> &temperature);
 }
 
 #endif // ER4COMMLIB_H

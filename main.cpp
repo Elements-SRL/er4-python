@@ -200,6 +200,7 @@ PYBIND11_MODULE(er4_python_wrapper, m) {
     });
     m.def("setVoltageOffset", &er4CommLib::setVoltageOffset);
     m.def("checkVoltageOffset", &er4CommLib::checkVoltageOffset);
+    m.def("setVoltageRampOffset", &er4CommLib::setVoltageRampOffset);
     m.def("applyInsertionPulse", &er4CommLib::applyInsertionPulse);
     m.def("applyReferencePulse", &er4CommLib::applyReferencePulse);
     m.def("applyReferencePulseTrain", &er4CommLib::applyReferencePulseTrain);
