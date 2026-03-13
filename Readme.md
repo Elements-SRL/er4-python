@@ -126,12 +126,6 @@ After the creation of the venv activate it by typing: ```Scripts\activate```
 
 Now that the venv is active you need to install all the dependency from the requirements.txt using ```pip install -r path\to\requirements.txt``` then copy all the files from the **dlls** folder into the **Lib\site-packages** folder that has been created with the venv.
 
-# Building the library
-If the platform you're intrested in is not supported you can build it on your own thanks to our open-source codebase.
-This library has the following dependencies:
-- er4commlib: you can find it at the following link: [https://github.com/Elements-SRL/er4CommLib](https://github.com/Elements-SRL/er4CommLib).
-- pybind11: you'll only need the headers and you can finde them here [https://github.com/pybind/pybind11](https://github.com/pybind/pybind11)
-- Python: the python version of your choice, you'll both need the include directory and the libraries (both the libs folder and the python library itself)
 ### Usage
 The typical sequence of commands is:
 - detectDevices
@@ -147,3 +141,11 @@ Activate the virtual environment with: ```Scripts\activate```
 Run the script : ```python .\your_script.py```
 
 You can find an example with some callable functions in this directory.
+
+
+# Building the library
+If the platform you're intrested in is not supported you can build it on your own thanks to our open-source codebase.
+This library has the following dependencies:
+- er4commlib: you can find it at the following link: [https://github.com/Elements-SRL/er4CommLib](https://github.com/Elements-SRL/er4CommLib).
+- pybind11: you'll only need the headers and you can finde them here [https://github.com/pybind/pybind11](https://github.com/pybind/pybind11)
+- Python: the python version of your choice, you'll both need the include directory and the libraries (both the libs folder and the python library itself)
