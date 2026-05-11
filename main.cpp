@@ -422,10 +422,16 @@ PYBIND11_MODULE(er4_python_wrapper, m) {
         auto ret = er4CommLib::getVoltageOffsetControls(voltageRange);
         return std::make_tuple(ret, voltageRange);
     });
+    m.def("getVoltageRampOffsetControls", [](){
+        std::vector <er4CommLib::RangedMeasurement_t> voltageRanges;
+        er4CommLib::RangedMeasurement_t durationRange;
+        auto ret = er4CommLib::getVoltageRampOffsetControls(voltageRanges, durationRange);
+        return std::make_tuple(ret, voltageRanges, durationRange);
+    });
     m.def("getInsertionPulseControls", [](){
         er4CommLib::RangedMeasurement_t voltageRange, durationRange;
         auto ret = er4CommLib::getInsertionPulseControls(voltageRange, durationRange);
-        return std::make_tuple(ret, voltageRange);
+        return std::make_tuple(ret, voltageRange, durationRange);
     });
     m.def("hasReferencePulseControls", [](){
         bool referencePulseImplemented, overrideReferencePulseImplemented;
