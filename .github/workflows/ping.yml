@@ -2,6 +2,6 @@ name: ping
 on: workflow_dispatch
 jobs:
   ping:
-    runs-on: [self-hosted, windows, er4-python]
+    runs-on: self-hosted
     steps:
       - run: echo hello
