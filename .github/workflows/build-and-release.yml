@@ -54,7 +54,7 @@ jobs:
   # workflow artifact. Today the matrix has a single entry.
   # =========================================================================
   build:
-    runs-on: [self-hosted, windows, e384-build]   # label set defined in RUNNER_SETUP.md
+    runs-on: [self-hosted, windows, er4-python]   # label set defined in RUNNER_SETUP.md
     strategy:
       fail-fast: false
       matrix:
