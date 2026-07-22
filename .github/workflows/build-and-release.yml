@@ -96,7 +96,7 @@ jobs:
 
       # ----- Check out commlib source at the tagged ref -------------------
       # GITHUB_TOKEN is scoped to THIS repo only - it cannot read er4CommLib
-      # even though both live under the same org. COMMLIB_PAT is a fine-grained
+      # even though both live under the same org. ER4_COMMLIB_PAT is a fine-grained
       # PAT with Contents:Read on Elements-SRL/er4CommLib.
       - name: Checkout er4CommLib source
         uses: actions/checkout@v4
@@ -104,7 +104,7 @@ jobs:
           repository: ${{ env.COMMLIB_REPO }}
           ref: ${{ steps.ref.outputs.commlib_ref }}
           path: commlib
-          token: ${{ secrets.COMMLIB_PAT }}
+          token: ${{ secrets.ER4_COMMLIB_PAT }}
 
       - name: Verify commlib checkout
         working-directory: commlib

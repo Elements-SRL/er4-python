@@ -44,17 +44,17 @@ The wrapper does `find_package(er4commlib REQUIRED CONFIG)`, so commlib must be
 `cmake/er4commlibConfig.cmake`.
 
 ```powershell
-cd C:\src\er4CommLib          # a checkout at the desired tag
+cd <path/to/er4CommLib>          # a checkout at the desired tag
 cmake -B build -G "Visual Studio 17 2022" -A x64 `
-      -DCMAKE_BUILD_TYPE=Release `
-      -DCMAKE_INSTALL_PREFIX="C:\src\er4commlib-install"
+      -DCMAKE_CONFIGURATION_TYPES=Release `
+      -DCMAKE_INSTALL_PREFIX="path\to\er4commlib-install"
 cmake --build build --config Release --target install
 ```
 
 Then point the wrapper at what you just installed:
 
 ```powershell
-$env:ER4COMMLIB_PATH = "C:\src\er4commlib-install"
+$env:ER4COMMLIB_PATH = "path\to\er4commlib-install"
 ```
 
 > ⚠️ commlib's `CMakeLists.txt` forces the install prefix to `ER4COMMLIB_PATH`
