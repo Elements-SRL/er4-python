@@ -1,0 +1,323 @@
+# Builds the er4_python_wrapper .pyd from source and publishes a GitHub Release.
+#
+# Trigger: repository_dispatch (event_type = commlib-tagged) sent by the
+# er4CommLib trigger workflow, OR manual workflow_dispatch for testing.
+#
+# Runs on a SELF-HOSTED Windows runner because the build needs MSVC 2022 and the
+# FTDI dependencies, which cannot live on a hosted runner.
+# See docs/RUNNER_SETUP.md.
+#
+# Pipeline:
+#   1. Check out this repo (wrapper: main.cpp + CMakeLists.txt).
+#   2. Check out er4CommLib at the tagged ref, build it from source, install it.
+#   3. Build the wrapper against the freshly-installed commlib -> produces the .pyd.
+#   4. Assemble the ship bundle (.pyd + runtime DLLs) and upload as an artifact.
+#   5. A separate publish job collects every artifact into ONE GitHub Release.
+#
+# The build/publish split exists so that adding a second Python version later is
+# a one-line matrix change: each matrix leg uploads its own zip, and publish
+# attaches them all to a single release. See docs/ADDING_PYTHON_VERSIONS.md.
+
+name: Build and release .pyd
+
+on:
+  # Sent by er4CommLib when an authorised user pushes a tag.
+  repository_dispatch:
+    types: [commlib-tagged]
+  # Manual run for testing. Provide the commlib ref yourself.
+  workflow_dispatch:
+    inputs:
+      commlib_ref:
+        description: 'er4CommLib git ref (tag/branch) to build from'
+        required: true
+        default: 'development'
+
+# ---------------------------------------------------------------------------
+# Configuration knobs. Most live here so the workflow reads cleanly.
+# The *_PATH dependency variables are NOT here: they are system environment
+# variables on the self-hosted runner (see docs/RUNNER_SETUP.md), so the build
+# consumes them exactly as a manual local build does.
+#
+# Required runner vars: ER4COMMLIB_PATH, PYTHON_3_11_7_PATH, PYBIND_11_PATH,
+# FTDI_UTILS_PATH, LIBMPSSE_PATH, FTD2XX_PATH.
+# ---------------------------------------------------------------------------
+env:
+  # Which commlib repo to pull source from.
+  COMMLIB_REPO: Elements-SRL/er4CommLib
+  # DLLs to ship alongside the .pyd. Unlike the cl384 wrapper there is no
+  # FrontPanel/Opal Kelly dependency here, so the bundle is self-contained.
+  SHIP_DLLS: 'MPSSE.dll FTD2XX.dll'
+
+jobs:
+  # =========================================================================
+  # BUILD - produces one zipped bundle per Python version and uploads it as a
+  # workflow artifact. Today the matrix has a single entry.
+  # =========================================================================
+  build:
+    runs-on: [self-hosted, windows, e384-build]   # label set defined in RUNNER_SETUP.md
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add '3.12' etc. here once the runner has that Python AND the
+        # CMakeLists is made version-agnostic. See docs/ADDING_PYTHON_VERSIONS.md.
+        include:
+          - python: '3.11'
+            py_tag: 'cp311'
+    defaults:
+      run:
+        # The runner has Windows PowerShell 5.1, not PowerShell 7 (pwsh),
+        # which is what GitHub Actions would otherwise default to.
+        shell: powershell
+    # Passed to the publish job. With a single-entry matrix these are
+    # unambiguous; with several legs the value comes from whichever finished
+    # last, which is harmless because every leg builds the same commlib ref.
+    outputs:
+      commlib_version: ${{ steps.commlibver.outputs.version }}
+      commlib_ref: ${{ steps.ref.outputs.commlib_ref }}
+    steps:
+      # ----- Resolve which commlib ref we are building --------------------
+      - name: Resolve commlib ref
+        id: ref
+        run: |
+          if ("${{ github.event_name }}" -eq "repository_dispatch") {
+            $r = "${{ github.event.client_payload.commlib_ref }}"
+          } else {
+            $r = "${{ github.event.inputs.commlib_ref }}"
+          }
+          if ([string]::IsNullOrWhiteSpace($r)) { throw "No commlib ref provided" }
+          echo "commlib_ref=$r" >> $env:GITHUB_OUTPUT
+          echo "Building against commlib ref: $r"
+
+      # ----- Check out the wrapper (this repo) ----------------------------
+      - name: Checkout wrapper
+        uses: actions/checkout@v4
+        with:
+          path: wrapper
+
+      # ----- Check out commlib source at the tagged ref -------------------
+      # GITHUB_TOKEN is scoped to THIS repo only - it cannot read er4CommLib
+      # even though both live under the same org. COMMLIB_PAT is a fine-grained
+      # PAT with Contents:Read on Elements-SRL/er4CommLib.
+      - name: Checkout er4CommLib source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.COMMLIB_REPO }}
+          ref: ${{ steps.ref.outputs.commlib_ref }}
+          path: commlib
+          token: ${{ secrets.COMMLIB_PAT }}
+
+      - name: Verify commlib checkout
+        working-directory: commlib
+        run: |
+          if (-not (Test-Path CMakeLists.txt)) {
+            throw "commlib/CMakeLists.txt missing - wrong ref? (got '${{ steps.ref.outputs.commlib_ref }}')"
+          }
+          Write-Host "commlib checked out at ref '${{ steps.ref.outputs.commlib_ref }}'."
+
+      # ----- Configure commlib --------------------------------------------
+      # Deps (ftdi_utils, MPSSE, FTD2XX) are resolved by commlib's own
+      # CMakeLists from the runner's system env vars. Do NOT pass
+      # -DCMAKE_PREFIX_PATH here: it overrides the cache entry the CMakeLists
+      # builds up internally and breaks find_package(ftdi_utils).
+      #
+      # ER4COMMLIB_PATH must be EMPTY for this step. commlib's CMakeLists
+      # force-sets CMAKE_INSTALL_PREFIX to $ENV{ER4COMMLIB_PATH} when it is
+      # set, which would silently redirect the install to the machine-wide
+      # C:\ElemLibraries\er4CommLib\ instead of our per-run prefix - and we
+      # would end up releasing a .pyd linked against a stale local copy while
+      # the release notes claim the new tag.
+      - name: Configure commlib
+        working-directory: commlib
+        env:
+          ER4COMMLIB_PATH: ''
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_CONFIGURATION_TYPES="Release" `
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}\commlib-install"
+          if ($LASTEXITCODE -ne 0) { throw "commlib configure failed: $LASTEXITCODE" }
+
+      - name: Build + install commlib
+        working-directory: commlib
+        env:
+          ER4COMMLIB_PATH: ''
+        run: |
+          cmake --build build --config Release --target install --parallel
+          if ($LASTEXITCODE -ne 0) { throw "commlib build/install failed: $LASTEXITCODE" }
+
+          $cfg = "${{ github.workspace }}\commlib-install\cmake\er4commlibConfig.cmake"
+          Write-Host "config at expected prefix: $(Test-Path $cfg)"
+          if (-not (Test-Path $cfg)) {
+            Write-Host "Install went elsewhere. Searching workspace..."
+            Get-ChildItem "${{ github.workspace }}" -Recurse -Filter er4commlibConfig.cmake -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "  $($_.FullName)" }
+            throw "er4commlibConfig.cmake not at $cfg"
+          }
+
+      # ----- Build the wrapper -> .pyd ------------------------------------
+      # PYTHON_3_11_7_PATH and PYBIND_11_PATH come from the runner's system env.
+      # We override ER4COMMLIB_PATH to point at what we just installed, so the
+      # wrapper links the freshly-built-from-source commlib, not a stale copy.
+      - name: Configure wrapper
+        working-directory: wrapper
+        env:
+          ER4COMMLIB_PATH: ${{ github.workspace }}\commlib-install
+        run: |
+          if (Test-Path build) {
+            Write-Host "Removing stale build directory..."
+            Remove-Item -Recurse -Force build
+          }
+
+          Write-Host "=== wrapper env ==="
+          foreach ($v in 'ER4COMMLIB_PATH','PYTHON_3_11_7_PATH','PYBIND_11_PATH') {
+            $proc = [Environment]::GetEnvironmentVariable($v,'Process')
+            $flag = if ([string]::IsNullOrWhiteSpace($proc)) { 'MISSING' } else { 'ok' }
+            Write-Host ("{0,-20} {1}  '{2}'" -f $v, $flag, $proc)
+          }
+          Write-Host ""
+
+          cmake -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_CONFIGURATION_TYPES="Release"
+          if ($LASTEXITCODE -ne 0) { throw "wrapper configure failed: $LASTEXITCODE" }
+
+      - name: Build wrapper
+        working-directory: wrapper
+        env:
+          ER4COMMLIB_PATH: ${{ github.workspace }}\commlib-install
+        run: |
+          cmake --build build --config Release
+          if ($LASTEXITCODE -ne 0) { throw "wrapper build failed: $LASTEXITCODE" }
+
+      # ----- Locate the produced .pyd -------------------------------------
+      - name: Find .pyd
+        id: pyd
+        working-directory: wrapper
+        run: |
+          $pyd = Get-ChildItem -Recurse -Filter *.pyd | Select-Object -First 1
+          if (-not $pyd) { throw "No .pyd produced - build failed silently" }
+          echo "pyd_path=$($pyd.FullName)" >> $env:GITHUB_OUTPUT
+          echo "Found: $($pyd.FullName)"
+
+      # ----- Read the commlib version we built against --------------------
+      # commlib's CMakeLists declares project(... VERSION x.y.z). We read it
+      # straight from the source so the release notes state the true origin.
+      - name: Extract commlib version
+        id: commlibver
+        working-directory: commlib
+        run: |
+          $line = Select-String -Path CMakeLists.txt -Pattern 'VERSION\s+(\d+\.\d+\.\d+)' | Select-Object -First 1
+          if (-not $line) { throw "Could not read VERSION from commlib/CMakeLists.txt" }
+          $ver = $line.Matches[0].Groups[1].Value
+          echo "version=$ver" >> $env:GITHUB_OUTPUT
+          echo "commlib version: $ver"
+
+      # ----- Assemble the ship bundle -------------------------------------
+      # Bundle = the .pyd + the runtime DLLs listed in SHIP_DLLS.
+      - name: Assemble bundle
+        id: bundle
+        run: |
+          $stage = "${{ github.workspace }}/stage"
+          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          # The .pyd
+          Copy-Item "${{ steps.pyd.outputs.pyd_path }}" $stage
+
+          # Runtime DLLs. These folders are where the DLLs sit on the runner;
+          # they typically live beside the vendor SDKs pointed to by the env vars.
+          $DLL_SEARCH = @(
+            "$env:FTDI_UTILS_PATH",
+            "$env:LIBMPSSE_PATH",
+            "$env:FTD2XX_PATH",
+            "${{ github.workspace }}/commlib-install/bin"
+          )
+
+          foreach ($dll in "${{ env.SHIP_DLLS }}".Split(" ")) {
+            $found = $null
+            foreach ($dir in $DLL_SEARCH) {
+              if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+              $hit = Get-ChildItem -Path $dir -Recurse -Filter $dll -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($hit) { $found = $hit.FullName; break }
+            }
+            if (-not $found) { throw "Required DLL not found on runner: $dll" }
+            Copy-Item $found $stage
+            echo "Bundled: $dll  (from $found)"
+          }
+
+          # A manifest so the release is self-documenting.
+          $commlibVer = "${{ steps.commlibver.outputs.version }}"
+          @"
+          er4_python_wrapper build manifest
+          ---------------------------------
+          Built from er4CommLib version : $commlibVer
+          commlib ref                   : ${{ steps.ref.outputs.commlib_ref }}
+          Python target                 : ${{ matrix.py_tag }} (CPython ${{ matrix.python }}, x64)
+          Bundled DLLs                  : ${{ env.SHIP_DLLS }}
+          "@ | Out-File -Encoding utf8 "$stage/BUILD_MANIFEST.txt"
+
+          $zip = "${{ github.workspace }}/er4_python-commlib-$commlibVer-${{ matrix.py_tag }}.zip"
+          if (Test-Path $zip) { Remove-Item -Force $zip }
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
+          echo "zip_path=$zip" >> $env:GITHUB_OUTPUT
+
+      # ----- Smoke test: can Python actually import it? -------------------
+      # Catches "built fine but unusable" (missing companion DLL, wrong
+      # bitness, wrong Python minor) BEFORE anything is published.
+      - name: Smoke test import
+        run: |
+          $py = Join-Path "$env:PYTHON_3_11_7_PATH" "python.exe"
+          if (-not (Test-Path $py)) { throw "python.exe not found at $py" }
+          Push-Location "${{ github.workspace }}/stage"
+          & $py -c "import er4_python_wrapper as m; print('import OK:', m.__file__)"
+          $rc = $LASTEXITCODE
+          Pop-Location
+          if ($rc -ne 0) { throw "Smoke test failed: the .pyd does not import ($rc)" }
+
+      # ----- Upload for the publish job -----------------------------------
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.py_tag }}
+          path: ${{ steps.bundle.outputs.zip_path }}
+          if-no-files-found: error
+
+  # =========================================================================
+  # PUBLISH - runs once, after all build legs. Collects every bundle and
+  # creates ONE release carrying them all.
+  # =========================================================================
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required for creating the release
+    steps:
+      - name: Download all bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: bundle-*
+          merge-multiple: true
+
+      - name: List what will be released
+        run: ls -la dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: commlib-${{ needs.build.outputs.commlib_version }}
+          name: er4_python (commlib ${{ needs.build.outputs.commlib_version }})
+          body: |
+            Automated build of the Python wrapper `.pyd`.
+
+            **Originating C++ library:** er4CommLib ${{ needs.build.outputs.commlib_version }}
+            (ref `${{ needs.build.outputs.commlib_ref }}`)
+            **Python target:** CPython 3.11, 64-bit
+            **Included:** the `.pyd`, `MPSSE.dll`, `FTD2XX.dll`, a build manifest.
+
+            Download the zip, extract it, and place its contents in your
+            virtual environment's `Lib\site-packages` folder (or any folder on
+            `PATH` beside your script). The DLLs must sit next to the `.pyd`.
+
+            You also need the FTDI D2XX USB driver installed - see the README.
+          files: dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
